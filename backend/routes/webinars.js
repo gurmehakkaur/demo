@@ -1,7 +1,6 @@
 const express = require("express");
 const { ObjectId } = require("mongodb");
 const { authenticate, authorize } = require("../middleware/auth");
-const { users } = require("../data/users");
 const { db } = require("../db/client");
 
 const router = express.Router();
@@ -14,9 +13,9 @@ function toObj(doc) {
   return { id: _id.toString(), ...rest };
 }
 
-function withHost(doc) {
+async function withHost(doc) {
   const w = toObj(doc);
-  const host = users.find((u) => u.id === w.host_id);
+  const host = await db.collection("users").findOne({ id: w.host_id });
   return { ...w, host_name: host?.name || "Unknown" };
 }
 
@@ -44,7 +43,7 @@ router.get("/", authenticate, async (req, res) => {
     if (req.user.role === "HOST")    filter = { host_id: req.user.id };
 
     const docs = await db.collection("webinars").find(filter).toArray();
-    res.json({ success: true, data: docs.map(withHost) });
+    res.json({ success: true, data: await Promise.all(docs.map(withHost)) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -199,10 +198,10 @@ router.get("/:id/attendees", authenticate, authorize("HOST", "ADMIN"), async (re
       return res.status(403).json({ success: false, error: "Not your webinar" });
 
     const regs = await db.collection("registrations").find({ webinar_id: req.params.id, status: "REGISTERED" }).toArray();
-    const attendees = regs.map((r) => {
-      const student = users.find((u) => u.id === r.student_id);
+    const attendees = await Promise.all(regs.map(async (r) => {
+      const student = await db.collection("users").findOne({ id: r.student_id });
       return { registration_id: r._id, student_id: r.student_id, name: student?.name, email: student?.email };
-    });
+    }));
     res.json({ success: true, data: { webinar, attendees } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
