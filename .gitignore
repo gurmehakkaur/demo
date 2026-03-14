@@ -1,0 +1,5 @@
+backend/node_modules
+my-app/node_modules
+.DS_Store
+.env.local
+.env.*.local

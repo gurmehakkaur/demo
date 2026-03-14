@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
 const HomeIcon = () => (
@@ -129,23 +130,21 @@ export default function Home() {
 
         {/* Nav links */}
         <nav className="flex flex-col gap-0.5 px-2">
-          {navItems.map((item) => (
-            <button
-              key={item.label}
-              className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-left transition-colors
-                ${item.highlight === "blue"
-                  ? "text-[#4A90D9]"
-                  : item.selected
-                  ? "bg-[#2c2c48] text-white"
-                  : "text-gray-400 hover:bg-[#2c2c48] hover:text-white"
-                }`}
-            >
-              <span className={item.highlight === "blue" ? "text-[#4A90D9]" : item.selected ? "text-white" : "text-gray-500"}>
-                {item.icon}
-              </span>
-              {item.label}
-            </button>
-          ))}
+          {navItems.map((item) => {
+            const cls = `flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-left transition-colors ${
+              item.highlight === "blue"
+                ? "text-[#4A90D9]"
+                : "text-gray-400 hover:bg-[#2c2c48] hover:text-white"
+            }`;
+            const iconCls = item.highlight === "blue" ? "text-[#4A90D9]" : "text-gray-500";
+            const inner = <><span className={iconCls}>{item.icon}</span>{item.label}</>;
+
+            return item.label === "Webinars" ? (
+              <Link key={item.label} href="/login" className={cls}>{inner}</Link>
+            ) : (
+              <button key={item.label} className={cls}>{inner}</button>
+            );
+          })}
 
           {/* Profile with red dot */}
           <button className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-gray-400 text-left hover:bg-[#2c2c48] hover:text-white transition-colors">
