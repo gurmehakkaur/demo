@@ -102,6 +102,7 @@ const navItems = [
   { icon: <CalendarIcon />, label: "Consult a Lawyer" },
   { icon: <FileIcon />, label: "Resources" },
   { icon: <BriefcaseNavIcon />, label: "Careers" },
+  { icon: <BriefcaseNavIcon />, label: "Webinars" }
 ];
 
 // ── Page ───────────────────────────────────────────────────────────────────────
