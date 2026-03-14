@@ -1,12 +1,30 @@
-# Local dev — builds from source using root Dockerfile
+# Local dev — app + postgres in one command
 # Usage: docker compose up --build
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: borderpass
+      POSTGRES_USER: borderpass
+      POSTGRES_PASSWORD: borderpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   app:
     build:
       context: .
       args:
         NEXT_PUBLIC_API_URL: http://localhost:3001
     ports:
-      - "3002:3000"
-      - "3003:3001"
+      - "3000:3000"
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://borderpass:borderpass@db:5432/borderpass
+    depends_on:
+      - db
     restart: unless-stopped
+
+volumes:
+  pgdata:

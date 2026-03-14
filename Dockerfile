@@ -1,10 +1,6 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-# API URL is baked into the Next.js bundle at compile time
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
 # ── Frontend ──────────────────────────────────────────────────────────────────
 WORKDIR /app/my-app
 
@@ -61,4 +57,4 @@ CMD ["node_modules/.bin/concurrently", \
      "-n", "API,WEB", \
      "-c", "yellow,cyan", \
      "node backend/server.js", \
-     "HOSTNAME=0.0.0.0 PORT=3000 node frontend/server.js"]
+     "HOSTNAME=0.0.0.0 PORT=${PORT:-3000} node frontend/server.js"]
