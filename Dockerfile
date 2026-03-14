@@ -21,12 +21,6 @@ RUN npm ci --omit=dev
 
 COPY backend/ ./
 
-# ── Root (concurrently) ───────────────────────────────────────────────────────
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
@@ -37,12 +31,12 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser  --system --uid 1001 appuser
 
-# concurrently
-COPY --from=builder /app/package.json  ./
-COPY --from=builder /app/node_modules  ./node_modules
+# Start script
+COPY --chown=appuser:nodejs start.sh ./
+RUN chmod +x start.sh
 
 # Backend
-COPY --from=builder /app/backend       ./backend
+COPY --from=builder /app/backend ./backend
 
 # Frontend — standalone output + static assets + public
 COPY --from=builder --chown=appuser:nodejs /app/my-app/.next/standalone/ ./frontend/
@@ -51,10 +45,6 @@ COPY --from=builder --chown=appuser:nodejs /app/my-app/public/           ./front
 
 USER appuser
 
-EXPOSE 3000 3001
+EXPOSE 3000
 
-CMD ["node_modules/.bin/concurrently", \
-     "-n", "API,WEB", \
-     "-c", "yellow,cyan", \
-     "node backend/server.js", \
-     "HOSTNAME=0.0.0.0 PORT=${PORT:-3000} node frontend/server.js"]
+CMD ["sh", "start.sh"]
