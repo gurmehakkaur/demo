@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 const API = "/api";
 
 type Webinar = {
-  id: number; title: string; description: string; host_name: string;
+  id: string; title: string; description: string; host_name: string;
   scheduled_time: string; status: string;
+  max_seats: number | null; registered_count: number; waitlist_count: number;
+  my_status: "REGISTERED" | "WAITLISTED" | null;
 };
 type User = { id: number; name: string; email: string; role: string };
 
@@ -26,65 +28,71 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function StudentDashboard() {
   const router = useRouter();
-  const [user, setUser]           = useState<User | null>(null);
-  const [token, setToken]         = useState("");
-  const [webinars, setWebinars]   = useState<Webinar[]>([]);
-  const [registered, setRegistered] = useState<Set<number>>(new Set());
-  const [loading, setLoading]     = useState(true);
-  const [msg, setMsg]             = useState("");
+  const [user, setUser]         = useState<User | null>(null);
+  const [token, setToken]       = useState("");
+  const [webinars, setWebinars] = useState<Webinar[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [msg, setMsg]           = useState("");
 
   const authHeaders = useCallback((tok: string) => ({
     "Content-Type": "application/json",
     Authorization: `Bearer ${tok}`,
   }), []);
 
+  function flash(m: string) { setMsg(m); setTimeout(() => setMsg(""), 3500); }
+
+  async function loadWebinars(tok: string) {
+    const res = await fetch(`${API}/webinars`, { headers: authHeaders(tok) });
+    const json = await res.json();
+    setWebinars(json.data || []);
+  }
+
   useEffect(() => {
-    const tok  = localStorage.getItem("bp_token") || "";
-    const u    = JSON.parse(localStorage.getItem("bp_user") || "null");
+    const tok = localStorage.getItem("bp_token") || "";
+    const u   = JSON.parse(localStorage.getItem("bp_user") || "null");
     if (!tok || !u) { router.push("/login"); return; }
     if (u.role !== "STUDENT") {
       router.push(u.role === "ADMIN" ? "/webinars/admin" : "/webinars/host");
       return;
     }
     setToken(tok); setUser(u);
+    loadWebinars(tok).then(() => setLoading(false));
+  }, [router, authHeaders]); // eslint-disable-line
 
-    async function load() {
-      const [wRes] = await Promise.all([
-        fetch(`${API}/webinars`, { headers: authHeaders(tok) }),
-      ]);
-      const wJson = await wRes.json();
-      setWebinars(wJson.data || []);
-      setLoading(false);
-    }
-    load();
-  }, [router, authHeaders]);
-
-  async function register(webinarId: number) {
+  async function register(webinarId: string) {
     const res = await fetch(`${API}/webinars/${webinarId}/register`, {
       method: "POST", headers: authHeaders(token),
     });
     const json = await res.json();
-    if (json.success) {
-      setRegistered((prev) => new Set([...prev, webinarId]));
-      setMsg("Registered successfully!");
-    } else {
-      setMsg(json.error);
-    }
-    setTimeout(() => setMsg(""), 3000);
+    if (json.success) { await loadWebinars(token); flash("Registered successfully!"); }
+    else flash(json.error);
   }
 
-  async function unregister(webinarId: number) {
+  async function unregister(webinarId: string) {
     const res = await fetch(`${API}/webinars/${webinarId}/unregister`, {
       method: "POST", headers: authHeaders(token),
     });
     const json = await res.json();
-    if (json.success) {
-      setRegistered((prev) => { const s = new Set(prev); s.delete(webinarId); return s; });
-      setMsg("Registration cancelled.");
-    } else {
-      setMsg(json.error);
-    }
-    setTimeout(() => setMsg(""), 3000);
+    if (json.success) { await loadWebinars(token); flash("Registration cancelled."); }
+    else flash(json.error);
+  }
+
+  async function joinWaitlist(webinarId: string) {
+    const res = await fetch(`${API}/webinars/${webinarId}/waitlist`, {
+      method: "POST", headers: authHeaders(token),
+    });
+    const json = await res.json();
+    if (json.success) { await loadWebinars(token); flash("Added to waitlist. You'll be contacted if a seat opens up."); }
+    else flash(json.error);
+  }
+
+  async function leaveWaitlist(webinarId: string) {
+    const res = await fetch(`${API}/webinars/${webinarId}/unwaitlist`, {
+      method: "POST", headers: authHeaders(token),
+    });
+    const json = await res.json();
+    if (json.success) { await loadWebinars(token); flash("Removed from waitlist."); }
+    else flash(json.error);
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading…</div>;
@@ -125,32 +133,64 @@ export default function StudentDashboard() {
 
         <div className="flex flex-col gap-4">
           {webinars.map((w) => {
-            const isReg = registered.has(w.id);
+            const isFull = w.max_seats !== null && w.registered_count >= w.max_seats;
+            const canAct = ["SCHEDULED", "LIVE"].includes(w.status);
             return (
               <div key={w.id} className="rounded-2xl bg-white p-6 shadow-sm flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <h2 className="font-semibold text-gray-900 text-base">{w.title}</h2>
                     <StatusBadge status={w.status} />
+                    {isFull && (
+                      <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold text-white bg-red-500">
+                        Full
+                      </span>
+                    )}
+                    {w.my_status === "WAITLISTED" && (
+                      <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700">
+                        Waitlisted
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-500 mb-3">{w.description}</p>
-                  <div className="flex gap-4 text-xs text-gray-400">
+                  <div className="flex gap-4 text-xs text-gray-400 flex-wrap">
                     <span>Host: <strong className="text-gray-600">{w.host_name}</strong></span>
                     <span>{new Date(w.scheduled_time).toLocaleString()}</span>
+                    {w.max_seats && (
+                      <span className={isFull ? "text-red-500 font-medium" : ""}>
+                        {w.registered_count}/{w.max_seats} seats
+                        {w.waitlist_count > 0 && ` · ${w.waitlist_count} on waitlist`}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="flex-shrink-0">
-                  {isReg ? (
+                <div className="flex-shrink-0 flex flex-col gap-2 items-end">
+                  {w.my_status === "REGISTERED" ? (
                     <button onClick={() => unregister(w.id)}
                       className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:border-red-400 hover:text-red-600 transition-colors">
                       Cancel
                     </button>
+                  ) : w.my_status === "WAITLISTED" ? (
+                    <button onClick={() => leaveWaitlist(w.id)}
+                      className="rounded-full border border-amber-300 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors">
+                      Leave Waitlist
+                    </button>
+                  ) : isFull && canAct ? (
+                    <button onClick={() => joinWaitlist(w.id)}
+                      className="rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors">
+                      Join Waitlist
+                    </button>
                   ) : (
                     <button onClick={() => register(w.id)}
-                      disabled={!["SCHEDULED", "LIVE"].includes(w.status)}
+                      disabled={!canAct}
                       className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                       Register
                     </button>
+                  )}
+                  {w.my_status === "WAITLISTED" && (
+                    <p className="text-xs text-gray-400 text-right max-w-[140px]">
+                      You&apos;ll be contacted if a seat opens up
+                    </p>
                   )}
                 </div>
               </div>

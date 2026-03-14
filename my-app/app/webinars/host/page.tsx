@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 const API = "/api";
 
 type Webinar = {
-  id: number; title: string; description: string; host_name: string;
+  id: string; title: string; description: string; host_name: string;
   scheduled_time: string; status: string;
+  max_seats: number | null; registered_count: number; waitlist_count: number;
 };
-type Attendee = { registration_id: number; student_id: number; name: string; email: string };
+type Attendee = { registration_id: string; student_id: string; name: string; email: string; status: string };
 
 const statusColors: Record<string, string> = {
   SCHEDULED: "#3b82f6", LIVE: "#22c55e", COMPLETED: "#6b7280",
@@ -37,9 +38,11 @@ export default function HostDashboard() {
   const [title, setTitle]         = useState("");
   const [description, setDescription] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+  const [maxSeats, setMaxSeats]   = useState("");
 
   // Attendees panel
-  const [attendees, setAttendees]     = useState<Attendee[] | null>(null);
+  const [attendees, setAttendees]       = useState<Attendee[] | null>(null);
+  const [waitlisted, setWaitlisted]     = useState<Attendee[]>([]);
   const [attendeesWebinar, setAttendeesWebinar] = useState<Webinar | null>(null);
 
   const authHeaders = useCallback((tok: string) => ({
@@ -72,17 +75,17 @@ export default function HostDashboard() {
     const res = await fetch(`${API}/webinars`, {
       method: "POST",
       headers: authHeaders(token),
-      body: JSON.stringify({ title, description, scheduled_time: new Date(scheduledTime).toISOString() }),
+      body: JSON.stringify({ title, description, scheduled_time: new Date(scheduledTime).toISOString(), max_seats: maxSeats || null }),
     });
     const json = await res.json();
     if (json.success) {
-      setWebinars((prev) => [...prev, json.data]);
-      setTitle(""); setDescription(""); setScheduledTime(""); setShowForm(false);
+      await loadWebinars(token);
+      setTitle(""); setDescription(""); setScheduledTime(""); setMaxSeats(""); setShowForm(false);
       flash("Webinar created as DRAFT.");
     } else { flash(json.error); }
   }
 
-  async function action(webinarId: number, endpoint: string) {
+  async function action(webinarId: string, endpoint: string) {
     const res = await fetch(`${API}/webinars/${webinarId}/${endpoint}`, {
       method: "POST", headers: authHeaders(token),
     });
@@ -94,8 +97,11 @@ export default function HostDashboard() {
   async function viewAttendees(w: Webinar) {
     const res = await fetch(`${API}/webinars/${w.id}/attendees`, { headers: authHeaders(token) });
     const json = await res.json();
-    if (json.success) { setAttendees(json.data.attendees); setAttendeesWebinar(w); }
-    else flash(json.error);
+    if (json.success) {
+      setAttendees(json.data.attendees);
+      setWaitlisted(json.data.waitlisted || []);
+      setAttendeesWebinar(w);
+    } else flash(json.error);
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading…</div>;
@@ -148,6 +154,9 @@ export default function HostDashboard() {
               rows={3} className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-400 resize-none" />
             <input required type="datetime-local" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)}
               className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-400" />
+            <input type="number" min="1" value={maxSeats} onChange={(e) => setMaxSeats(e.target.value)}
+              placeholder="Max seats (leave blank for unlimited)"
+              className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-400" />
             <button type="submit"
               className="self-end rounded-full bg-gray-900 px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-700 transition-colors">
               Create
@@ -169,7 +178,14 @@ export default function HostDashboard() {
                     <StatusBadge status={w.status} />
                   </div>
                   <p className="text-sm text-gray-500">{w.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(w.scheduled_time).toLocaleString()}</p>
+                  <div className="flex gap-4 text-xs text-gray-400 mt-1 flex-wrap">
+                    <span>{new Date(w.scheduled_time).toLocaleString()}</span>
+                    {w.max_seats && (
+                      <span>{w.registered_count}/{w.max_seats} seats
+                        {w.waitlist_count > 0 && ` · ${w.waitlist_count} waitlisted`}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
@@ -199,19 +215,23 @@ export default function HostDashboard() {
 
       {/* Attendees drawer */}
       {attendees !== null && attendeesWebinar && (
-        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={() => setAttendees(null)}>
-          <div className="w-full max-w-lg bg-white rounded-t-2xl p-6 max-h-[70vh] overflow-y-auto"
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={() => { setAttendees(null); setWaitlisted([]); }}>
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-6 max-h-[75vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-900">Attendees — {attendeesWebinar.title}</h2>
-              <button onClick={() => setAttendees(null)} className="text-gray-400 hover:text-gray-700">✕</button>
+              <h2 className="font-semibold text-gray-900">{attendeesWebinar.title}</h2>
+              <button onClick={() => { setAttendees(null); setWaitlisted([]); }} className="text-gray-400 hover:text-gray-700">✕</button>
             </div>
+
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Registered ({attendees.length}{attendeesWebinar.max_seats ? `/${attendeesWebinar.max_seats}` : ""})
+            </p>
             {attendees.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No registrations yet.</p>
+              <p className="text-sm text-gray-400 text-center py-4">No registrations yet.</p>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 mb-4">
                 {attendees.map((a) => (
-                  <div key={a.registration_id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+                  <div key={String(a.registration_id)} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
                     <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm">
                       {a.name?.[0] || "?"}
                     </div>
@@ -222,6 +242,27 @@ export default function HostDashboard() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {waitlisted.length > 0 && (
+              <>
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">
+                  Waitlist ({waitlisted.length})
+                </p>
+                <div className="flex flex-col gap-2">
+                  {waitlisted.map((a, i) => (
+                    <div key={String(a.registration_id)} className="flex items-center gap-3 rounded-lg bg-amber-50 px-4 py-3">
+                      <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-semibold text-sm">
+                        {i + 1}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{a.name}</div>
+                        <div className="text-xs text-gray-400">{a.email}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

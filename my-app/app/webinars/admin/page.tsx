@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 const API = "/api";
 
 type Webinar = {
-  id: number; title: string; description: string; host_name: string;
-  scheduled_time: string; status: string; attendee_count?: number;
+  id: string; title: string; description: string; host_name: string;
+  scheduled_time: string; status: string;
+  attendee_count: number; waitlist_count: number; max_seats: number | null;
 };
+type Attendee = { registration_id: string; student_id: string; name: string; email: string; status: string };
 
 const statusColors: Record<string, string> = {
   SCHEDULED: "#3b82f6", LIVE: "#22c55e", COMPLETED: "#6b7280",
@@ -33,6 +35,11 @@ export default function AdminDashboard() {
   const [loading, setLoading]   = useState(true);
   const [msg, setMsg]           = useState({ text: "", ok: true });
   const [filter, setFilter]     = useState("ALL");
+
+  // Attendees panel
+  const [panelWebinar, setPanelWebinar]   = useState<Webinar | null>(null);
+  const [attendees, setAttendees]         = useState<Attendee[]>([]);
+  const [waitlisted, setWaitlisted]       = useState<Attendee[]>([]);
 
   const authHeaders = useCallback((tok: string) => ({
     "Content-Type": "application/json",
@@ -61,7 +68,7 @@ export default function AdminDashboard() {
     loadWebinars(tok).then(() => setLoading(false));
   }, [router, authHeaders]); // eslint-disable-line
 
-  async function action(webinarId: number, endpoint: string, label: string) {
+  async function action(webinarId: string, endpoint: string, label: string) {
     const res = await fetch(`${API}/webinars/${webinarId}/${endpoint}`, {
       method: "POST", headers: authHeaders(token),
     });
@@ -69,6 +76,18 @@ export default function AdminDashboard() {
     if (json.success) { await loadWebinars(token); flash(`${label}: done`); }
     else flash(json.error, false);
   }
+
+  async function viewAttendees(w: Webinar) {
+    const res = await fetch(`${API}/webinars/${w.id}/attendees`, { headers: authHeaders(token) });
+    const json = await res.json();
+    if (json.success) {
+      setAttendees(json.data.attendees || []);
+      setWaitlisted(json.data.waitlisted || []);
+      setPanelWebinar(w);
+    } else flash(json.error, false);
+  }
+
+  function closePanel() { setPanelWebinar(null); setAttendees([]); setWaitlisted([]); }
 
   const filtered = filter === "ALL" ? webinars : webinars.filter((w) => w.status === filter);
 
@@ -113,7 +132,6 @@ export default function AdminDashboard() {
 
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-gray-900">All Webinars</h1>
-          {/* Filter */}
           <div className="flex gap-2 flex-wrap justify-end">
             {FILTER_OPTIONS.map((f) => (
               <button key={f} onClick={() => setFilter(f)}
@@ -144,20 +162,30 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-3 mb-1 flex-wrap">
                     <h2 className="font-semibold text-gray-900">{w.title}</h2>
                     <StatusBadge status={w.status} />
-                    {w.attendee_count !== undefined && w.attendee_count > 0 && (
-                      <span className="text-xs text-gray-400">{w.attendee_count} registered</span>
-                    )}
                   </div>
                   <p className="text-sm text-gray-500 mb-1">{w.description}</p>
-                  <div className="flex gap-4 text-xs text-gray-400">
+                  <div className="flex gap-4 text-xs text-gray-400 flex-wrap">
                     <span>Host: <strong className="text-gray-600">{w.host_name}</strong></span>
                     <span>{new Date(w.scheduled_time).toLocaleString()}</span>
-                    <span className="text-gray-300">id:{w.id}</span>
+                    {w.max_seats ? (
+                      <span>{w.attendee_count}/{w.max_seats} seats
+                        {w.waitlist_count > 0 && <span className="text-amber-500"> · {w.waitlist_count} waitlisted</span>}
+                      </span>
+                    ) : w.attendee_count > 0 ? (
+                      <span>{w.attendee_count} registered
+                        {w.waitlist_count > 0 && <span className="text-amber-500"> · {w.waitlist_count} waitlisted</span>}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Action buttons */}
                 <div className="flex flex-col gap-2 flex-shrink-0">
+                  {["SCHEDULED", "LIVE", "COMPLETED"].includes(w.status) && (
+                    <button onClick={() => viewAttendees(w)}
+                      className="rounded-full border border-gray-300 px-4 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                      Attendees{w.waitlist_count > 0 ? ` / Waitlist` : ""}
+                    </button>
+                  )}
                   {w.status === "PENDING_APPROVAL" && (
                     <>
                       <button onClick={() => action(w.id, "approve", "Approved")}
@@ -182,6 +210,61 @@ export default function AdminDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Attendees / Waitlist drawer */}
+      {panelWebinar && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={closePanel}>
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-6 max-h-[75vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-900">{panelWebinar.title}</h2>
+              <button onClick={closePanel} className="text-gray-400 hover:text-gray-700">✕</button>
+            </div>
+
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Registered ({attendees.length}{panelWebinar.max_seats ? `/${panelWebinar.max_seats}` : ""})
+            </p>
+            {attendees.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">No registrations yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2 mb-4">
+                {attendees.map((a) => (
+                  <div key={String(a.registration_id)} className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm">
+                      {a.name?.[0] || "?"}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{a.name}</div>
+                      <div className="text-xs text-gray-400">{a.email}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {waitlisted.length > 0 && (
+              <>
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">
+                  Waitlist ({waitlisted.length})
+                </p>
+                <div className="flex flex-col gap-2">
+                  {waitlisted.map((a, i) => (
+                    <div key={String(a.registration_id)} className="flex items-center gap-3 rounded-lg bg-amber-50 px-4 py-3">
+                      <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-semibold text-sm">
+                        {i + 1}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{a.name}</div>
+                        <div className="text-xs text-gray-400">{a.email}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

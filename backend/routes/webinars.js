@@ -43,7 +43,23 @@ router.get("/", authenticate, async (req, res) => {
     if (req.user.role === "HOST")    filter = { host_id: req.user.id };
 
     const docs = await db.collection("webinars").find(filter).toArray();
-    res.json({ success: true, data: await Promise.all(docs.map(withHost)) });
+    const data = await Promise.all(docs.map(async (doc) => {
+      const w = await withHost(doc);
+      const webinarId = doc._id.toString();
+      const [registered_count, waitlist_count] = await Promise.all([
+        db.collection("registrations").countDocuments({ webinar_id: webinarId, status: "REGISTERED" }),
+        db.collection("registrations").countDocuments({ webinar_id: webinarId, status: "WAITLISTED" }),
+      ]);
+      let my_status = null;
+      if (req.user.role === "STUDENT") {
+        const myReg = await db.collection("registrations").findOne({
+          webinar_id: webinarId, student_id: req.user.id, status: { $in: ["REGISTERED", "WAITLISTED"] },
+        });
+        my_status = myReg?.status || null;
+      }
+      return { ...w, registered_count, waitlist_count, my_status };
+    }));
+    res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -62,7 +78,7 @@ router.get("/:id", authenticate, async (req, res) => {
 // ── POST /webinars — HOST creates ─────────────────────────────────────────────
 router.post("/", authenticate, authorize("HOST"), async (req, res) => {
   try {
-    const { title, description, scheduled_time } = req.body;
+    const { title, description, scheduled_time, max_seats } = req.body;
     if (!title || !scheduled_time)
       return res.status(400).json({ success: false, error: "title and scheduled_time are required" });
 
@@ -72,6 +88,7 @@ router.post("/", authenticate, authorize("HOST"), async (req, res) => {
       host_id: req.user.id,
       scheduled_time: new Date(scheduled_time),
       status: "DRAFT",
+      max_seats: max_seats ? parseInt(max_seats) : null,
     };
     const result = await db.collection("webinars").insertOne(doc);
     res.status(201).json({ success: true, data: withHost({ _id: result.insertedId, ...doc }) });
@@ -166,9 +183,15 @@ router.post("/:id/register", authenticate, authorize("STUDENT"), async (req, res
       return res.status(400).json({ success: false, error: `Cannot register. Status: ${w.status}` });
 
     const existing = await db.collection("registrations").findOne({
-      webinar_id: req.params.id, student_id: req.user.id, status: "REGISTERED",
+      webinar_id: req.params.id, student_id: req.user.id, status: { $in: ["REGISTERED", "WAITLISTED"] },
     });
-    if (existing) return res.status(409).json({ success: false, error: "Already registered" });
+    if (existing) return res.status(409).json({ success: false, error: existing.status === "REGISTERED" ? "Already registered" : "Already on waitlist" });
+
+    if (w.max_seats) {
+      const count = await db.collection("registrations").countDocuments({ webinar_id: req.params.id, status: "REGISTERED" });
+      if (count >= w.max_seats)
+        return res.status(409).json({ success: false, error: "Seats are full", seats_full: true });
+    }
 
     const result = await db.collection("registrations").insertOne({
       webinar_id: req.params.id, student_id: req.user.id, status: "REGISTERED",
@@ -189,6 +212,38 @@ router.post("/:id/unregister", authenticate, authorize("STUDENT"), async (req, r
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ── POST /webinars/:id/waitlist ───────────────────────────────────────────────
+router.post("/:id/waitlist", authenticate, authorize("STUDENT"), async (req, res) => {
+  try {
+    const w = await getWebinar(req.params.id, res);
+    if (!w) return;
+    if (!["SCHEDULED", "LIVE"].includes(w.status))
+      return res.status(400).json({ success: false, error: `Cannot join waitlist. Status: ${w.status}` });
+
+    const existing = await db.collection("registrations").findOne({
+      webinar_id: req.params.id, student_id: req.user.id, status: { $in: ["REGISTERED", "WAITLISTED"] },
+    });
+    if (existing) return res.status(409).json({ success: false, error: existing.status === "REGISTERED" ? "Already registered" : "Already on waitlist" });
+
+    const result = await db.collection("registrations").insertOne({
+      webinar_id: req.params.id, student_id: req.user.id, status: "WAITLISTED",
+    });
+    res.status(201).json({ success: true, data: { id: result.insertedId, status: "WAITLISTED" } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ── POST /webinars/:id/unwaitlist ─────────────────────────────────────────────
+router.post("/:id/unwaitlist", authenticate, authorize("STUDENT"), async (req, res) => {
+  try {
+    const result = await db.collection("registrations").findOneAndUpdate(
+      { webinar_id: req.params.id, student_id: req.user.id, status: "WAITLISTED" },
+      { $set: { status: "CANCELLED" } }
+    );
+    if (!result) return res.status(404).json({ success: false, error: "Not on waitlist" });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ── GET /webinars/:id/attendees ───────────────────────────────────────────────
 router.get("/:id/attendees", authenticate, authorize("HOST", "ADMIN"), async (req, res) => {
   try {
@@ -197,12 +252,16 @@ router.get("/:id/attendees", authenticate, authorize("HOST", "ADMIN"), async (re
     if (req.user.role === "HOST" && webinar.host_id !== req.user.id)
       return res.status(403).json({ success: false, error: "Not your webinar" });
 
-    const regs = await db.collection("registrations").find({ webinar_id: req.params.id, status: "REGISTERED" }).toArray();
-    const attendees = await Promise.all(regs.map(async (r) => {
+    const regs = await db.collection("registrations").find({
+      webinar_id: req.params.id, status: { $in: ["REGISTERED", "WAITLISTED"] },
+    }).toArray();
+    const people = await Promise.all(regs.map(async (r) => {
       const student = await db.collection("users").findOne({ id: r.student_id });
-      return { registration_id: r._id, student_id: r.student_id, name: student?.name, email: student?.email };
+      return { registration_id: r._id, student_id: r.student_id, name: student?.name, email: student?.email, status: r.status };
     }));
-    res.json({ success: true, data: { webinar, attendees } });
+    const attendees = people.filter((p) => p.status === "REGISTERED");
+    const waitlisted = people.filter((p) => p.status === "WAITLISTED");
+    res.json({ success: true, data: { webinar, attendees, waitlisted } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

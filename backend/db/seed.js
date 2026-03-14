@@ -44,6 +44,7 @@ async function seedWebinars() {
       host_id: 2,
       scheduled_time: new Date("2026-03-28T15:00:00Z"),
       status: "SCHEDULED",
+      max_seats: 30,
     },
     {
       title: "Study Permit: Common Mistakes",
@@ -51,6 +52,7 @@ async function seedWebinars() {
       host_id: 2,
       scheduled_time: new Date("2026-04-05T17:00:00Z"),
       status: "DRAFT",
+      max_seats: 50,
     },
   ]);
   console.log("Seeded 2 webinars into MongoDB");
