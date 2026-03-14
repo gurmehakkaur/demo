@@ -27,9 +27,9 @@ app.use((req, res, next) => {
 });
 app.use(apiLogger);
 
-app.use("/auth",     authRoutes);
-app.use("/webinars", webinarRoutes);
-app.use("/admin",    adminRoutes);
+app.use("/api/auth",     authRoutes);
+app.use("/api/webinars", webinarRoutes);
+app.use("/api/admin",    adminRoutes);
 
 app.get("/health", (req, res) => res.json({ success: true, data: { status: "ok" } }));
 

@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-const API = "";
+const API = "/api";
 
 type Webinar = {
   id: number; title: string; description: string; host_name: string;
