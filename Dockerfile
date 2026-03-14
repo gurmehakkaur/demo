@@ -10,7 +10,7 @@ RUN npm ci
 COPY my-app/ ./
 RUN npm run build
 
-# Fail loudly if standalone wasn't produced (catches missing output:"standalone")
+# Fail loudly if standalone wasn't produced
 RUN ls .next/standalone/server.js
 
 # ── Backend ───────────────────────────────────────────────────────────────────
@@ -27,24 +27,21 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 appuser
-
-# Start script
-COPY --chown=appuser:nodejs start.sh ./
-RUN chmod +x start.sh
+ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
 
 # Backend
-COPY --from=builder /app/backend ./backend
+COPY --from=builder /app/backend       ./backend
 
-# Frontend — standalone output + static assets + public
-COPY --from=builder --chown=appuser:nodejs /app/my-app/.next/standalone/ ./frontend/
-COPY --from=builder --chown=appuser:nodejs /app/my-app/.next/static/     ./frontend/.next/static/
-COPY --from=builder --chown=appuser:nodejs /app/my-app/public/           ./frontend/public/
+# Frontend — standalone + static + public
+COPY --from=builder /app/my-app/.next/standalone/ ./frontend/
+COPY --from=builder /app/my-app/.next/static/     ./frontend/.next/static/
+COPY --from=builder /app/my-app/public/           ./frontend/public/
 
-USER appuser
+# Start script
+COPY start.sh ./
+RUN chmod +x start.sh
 
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["sh", "start.sh"]
