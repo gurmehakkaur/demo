@@ -1,0 +1,12 @@
+# Local dev — builds from source using root Dockerfile
+# Usage: docker compose up --build
+services:
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - "3002:3000"
+      - "3003:3001"
+    restart: unless-stopped

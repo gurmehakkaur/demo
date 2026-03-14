@@ -1,0 +1,12 @@
+# Production — pulls pre-built image from GHCR
+# Required env vars:
+#   GHCR_OWNER=your-github-username
+#   NEXT_PUBLIC_API_URL=http://your-server-ip:3001
+# Usage: docker compose -f docker-compose.prod.yml up -d
+services:
+  app:
+    image: ghcr.io/${GHCR_OWNER}/borderpass:latest
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    restart: unless-stopped
