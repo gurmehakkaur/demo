@@ -16,8 +16,11 @@ async function init() {
   }
   if (retries === 0) throw new Error("Could not connect to MongoDB");
 
-  await seedUsers();
-  await seedWebinars();
+  // Only seed if SEED_DB env variable is explicitly set
+  if (process.env.SEED_DB === "true") {
+    await seedUsers();
+    await seedWebinars();
+  }
 }
 
 async function seedUsers() {

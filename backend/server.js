@@ -37,7 +37,7 @@ app.use((req, res) => {
   res.status(404).json({ success: false, error: `Route not found: ${req.method} ${req.path}` });
 });
 
-// Connect to Elasticsearch, create indices, seed — then start HTTP server
+// Connect to Elasticsearch, create indices, seed (if enabled) — then start HTTP server
 init()
   .then(() => {
     app.listen(PORT, () => {
