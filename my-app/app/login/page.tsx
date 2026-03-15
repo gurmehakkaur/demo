@@ -35,19 +35,33 @@ export default function ProfileSelectionPage() {
       });
   }, []);
 
-  const selectProfile = (user: User) => {
-    // Store user info in localStorage (no authentication, just profile selection)
-    localStorage.setItem("bp_user", JSON.stringify(user));
-    // Generate a simple token for API requests
-    localStorage.setItem("bp_token", `demo-token-${user.id}`);
+  const selectProfile = async (user: User) => {
+    try {
+      const res = await fetch(`${API}/auth/select-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: user.id }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error || "Failed to select profile");
+        return;
+      }
+      
+      // Store token and user info
+      localStorage.setItem("bp_token", json.data.token);
+      localStorage.setItem("bp_user", JSON.stringify(json.data.user));
 
-    // Redirect based on role
-    if (user.role === "ADMIN") {
-      router.push("/webinars/admin");
-    } else if (user.role === "HOST") {
-      router.push("/webinars/host");
-    } else {
-      router.push("/webinars");
+      // Redirect based on role
+      if (json.data.user.role === "ADMIN") {
+        router.push("/webinars/admin");
+      } else if (json.data.user.role === "HOST") {
+        router.push("/webinars/host");
+      } else {
+        router.push("/webinars");
+      }
+    } catch {
+      setError("Cannot connect to server. Is the backend running?");
     }
   };
 

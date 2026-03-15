@@ -20,6 +20,30 @@ router.get("/users", async (req, res) => {
   });
 });
 
+// POST /api/auth/select-profile - Select a profile and get a token (no password required)
+router.post("/select-profile", async (req, res) => {
+  const { id } = req.body;
+  if (!id) {
+    return res.status(400).json({ success: false, error: "User ID is required" });
+  }
+
+  const user = await db.collection("users").findOne({ id });
+  if (!user) {
+    return res.status(404).json({ success: false, error: "User not found" });
+  }
+
+  const token = jwt.sign(
+    { id: user.id, name: user.name, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: "8h" }
+  );
+
+  return res.json({
+    success: true,
+    data: { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } },
+  });
+});
+
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
