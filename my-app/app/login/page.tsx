@@ -1,52 +1,65 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const API = "/api";
 
-export default function LoginPage() {
+type User = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+};
+
+export default function ProfileSelectionPage() {
   const router = useRouter();
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+  useEffect(() => {
+    // Fetch available profiles
+    fetch(`${API}/auth/users`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success) {
+          setUsers(json.data);
+        } else {
+          setError(json.error || "Failed to load profiles");
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("Cannot connect to server. Is the backend running?");
+        setLoading(false);
       });
-      const json = await res.json();
-      if (!json.success) { setError(json.error); setLoading(false); return; }
+  }, []);
 
-      localStorage.setItem("bp_token", json.data.token);
-      localStorage.setItem("bp_user", JSON.stringify(json.data.user));
+  const selectProfile = (user: User) => {
+    // Store user info in localStorage (no authentication, just profile selection)
+    localStorage.setItem("bp_user", JSON.stringify(user));
+    // Generate a simple token for API requests
+    localStorage.setItem("bp_token", `demo-token-${user.id}`);
 
-      const role = json.data.user.role;
-      if (role === "ADMIN")   router.push("/webinars/admin");
-      else if (role === "HOST") router.push("/webinars/host");
-      else                     router.push("/webinars");
-    } catch {
-      setError("Cannot connect to server. Is the backend running?");
-      setLoading(false);
+    // Redirect based on role
+    if (user.role === "ADMIN") {
+      router.push("/webinars/admin");
+    } else if (user.role === "HOST") {
+      router.push("/webinars/host");
+    } else {
+      router.push("/webinars");
     }
-  }
+  };
 
-  const presets = [
-    { label: "Admin",     email: "admin@borderpass.com",  password: "admin123",   color: "#ef4444" },
-    { label: "Host",      email: "host@borderpass.com",   password: "host123",    color: "#f59e0b" },
-    { label: "Student 1", email: "student1@example.com",  password: "student123", color: "#3b82f6" },
-    { label: "Student 2", email: "student2@example.com",  password: "student123", color: "#3b82f6" },
-  ];
+  const roleColors: Record<string, { bg: string; border: string; text: string }> = {
+    ADMIN: { bg: "#fef2f2", border: "#fecaca", text: "#991b1b" },
+    HOST: { bg: "#fffbeb", border: "#fde68a", text: "#92400e" },
+    STUDENT: { bg: "#eff6ff", border: "#bfdbfe", text: "#1e40af" },
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#efefef" }}>
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-2xl px-4">
         {/* Logo */}
         <div className="flex items-center gap-2 justify-center mb-8">
           <div className="flex gap-1">
@@ -58,58 +71,60 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm p-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">Sign in</h1>
-          <p className="text-sm text-gray-500 mb-6">Webinars platform demo</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Select Profile</h1>
+          <p className="text-sm text-gray-500 mb-6">Choose a profile to continue (demo - no authentication required)</p>
 
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-400"
-                placeholder="you@example.com" required
-              />
+          {loading && (
+            <div className="text-center py-8 text-gray-500">Loading profiles...</div>
+          )}
+
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700 mb-6">
+              {error}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-blue-400"
-                placeholder="••••••••" required
-              />
+          )}
+
+          {!loading && users.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {users.map((user) => {
+                const colors = roleColors[user.role] || roleColors.STUDENT;
+                return (
+                  <button
+                    key={user.id}
+                    onClick={() => selectProfile(user)}
+                    className="text-left p-4 rounded-lg border-2 transition-all hover:shadow-md"
+                    style={{
+                      backgroundColor: colors.bg,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <div className="font-semibold" style={{ color: colors.text }}>
+                      {user.name}
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">{user.email}</div>
+                    <div className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
+                      style={{
+                        backgroundColor:
+                          user.role === "ADMIN"
+                            ? "#ef4444"
+                            : user.role === "HOST"
+                            ? "#f59e0b"
+                            : "#3b82f6",
+                      }}
+                    >
+                      {user.role}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+          )}
 
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">{error}</div>
-            )}
-
-            <button
-              type="submit" disabled={loading}
-              className="w-full rounded-full bg-gray-900 py-3 text-sm font-medium text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-
-          {/* Quick-fill presets */}
-          <div className="mt-6 border-t border-gray-100 pt-4">
-            <p className="text-xs text-gray-400 mb-3">Demo accounts — click to autofill</p>
-            <div className="grid grid-cols-2 gap-2">
-              {presets.map((p) => (
-                <button
-                  key={p.email}
-                  onClick={() => { setEmail(p.email); setPassword(p.password); setError(""); }}
-                  className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-xs hover:bg-gray-50 transition-colors"
-                >
-                  <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
-                  <div>
-                    <div className="font-medium text-gray-800">{p.label}</div>
-                    <div className="text-gray-400 truncate">{p.email}</div>
-                  </div>
-                </button>
-              ))}
+          {!loading && users.length === 0 && !error && (
+            <div className="text-center py-8 text-gray-500">
+              No profiles available
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

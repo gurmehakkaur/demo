@@ -5,6 +5,21 @@ const { JWT_SECRET } = require("../middleware/auth");
 
 const router = express.Router();
 
+// GET /api/auth/users - Get all users for profile selection (no auth required)
+router.get("/users", async (req, res) => {
+  const users = await db.collection("users").find({}).toArray();
+  const usersList = users.map(u => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role
+  }));
+  return res.json({
+    success: true,
+    data: usersList
+  });
+});
+
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
